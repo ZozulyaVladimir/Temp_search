@@ -1,9 +1,84 @@
-<html>
-  <head>
-    <title>Video Streaming Demonstration</title>
-  </head>
-  <body>
-    <h1>Video Streaming Demonstration</h1>
-    <img id="bg" src="{{ url_for('video_feed') }}">
-  </body>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+ <link href="/static/css/bootstrap.min.css" rel="stylesheet" media="screen">
+{#    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">#}
+{#    <script src="http://code.jquery.com/jquery-latest.js"></script>#}
+    <script src="/static/js/bootstrap.min.js"></script>
+
+    <script type="text/javascript">
+        var MouseCoords = {
+
+	// X-координата
+	getX: function(e)
+	{
+		if (e.pageX)
+		{
+			return e.pageX;
+		}
+		else if (e.clientX)
+		{
+			return e.clientX+(document.documentElement.scrollLeft || document.body.scrollLeft) - document.documentElement.clientLeft;
+		}
+
+		return 0;
+	},
+
+	// Y-координата
+	getY: function(e)
+	{
+		if (e.pageY)
+		{
+			return e.pageY;
+		}
+		else if (e.clientY)
+		{
+			return e.clientY+(document.documentElement.scrollTop || document.body.scrollTop) - document.documentElement.clientTop;
+		}
+
+		return 0;
+	}
+}
+
+document.onclick = function(e)
+{
+	if (!e) e = elem.event;
+    if(MouseCoords.getX(e)<640)
+    {
+        if( MouseCoords.getY(e)<480)
+        {
+            console.log(MouseCoords.getX(e) + " " + MouseCoords.getY(e));
+           var xhr = new XMLHttpRequest();
+           {#var data = JSON.stringify({"x":encodeURIComponent(MouseCoords.getX(e)),"y": encodeURIComponent(MouseCoords.getY(e))});#}
+           var params = "x=" + encodeURIComponent(MouseCoords.getX(e)) +
+                        "&y=" + encodeURIComponent(MouseCoords.getY(e));
+           xhr.open("GET", '/setXY?' + params, true);
+           xhr.send();
+
+        }
+    }
+
+}
+</script>
+
+
+
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+    <div class="row mt-2 justify-content-center">
+        <img id="bg" src="{{ url_for('video_feed') }}">
+    </div>
+   <div class="row mt-2 justify-content-center">
+       <a class="btn ml-1 btn-primary" href="/mod1" role="button">Telegram Notifications</a>
+       <a class="btn ml-1 btn-primary" href="/mod2" role="button">Normal Mode</a>
+       <a class="btn ml-1 btn-primary" href="/mod3" role="button">Target Mode</a>
+       <a class="btn ml-1 btn-primary" href="/mod4" role="button">Secret Algorithm</a>
+   </div>
+</div>
+    <div class="row mt-2 justify-content-center ">
+          <a href="/stop" class="btn btn-danger btn-lg active" role="button" aria-pressed="true">Stop</a>
+    </div>
+</body>
 </html>
