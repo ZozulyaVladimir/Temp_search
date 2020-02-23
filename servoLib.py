@@ -15,9 +15,9 @@
 import sys
 import time
 import RPi.GPIO as GPIO
-import mlx90614
 import numpy as np
-
+from threading import Lock
+import teleg
 # ==================== CLASS SECTION ===============================
 
 ImageArr = np.zeros([19, 21])
@@ -37,172 +37,65 @@ class SG90servo(object):
         (3) y_one, type=float, default = 2 ,help=pulse min duty cycle of servo % for 0 degrees
         (4) y_two type=float, default = 12, help=pulse max duty cycle of servo % for 180 degrees
           """
-
+        self.mutex = Lock()
         self.name = name
         self.freq = freq
         self.y_one = y_one
         self.y_two = y_two
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
+        self.curr_x = 130
+        self.curr_y = 130
+        self.global_delay = 0.01
+        self.delay_switch = True  # True is default, False is global
+        self.send_msg = False
 
-    def servo_sweep(self, servo_pin=7, center=7.5, minduty=3,
-                    maxduty=11, delay=0.5, verbose=False, initdelay=.05, sweeplen=1000000):
-        """servo_sweep 8 inputs, moves servo in sweep loop
+    def set_x(self, val):
+        with self.mutex:
+            self.curr_x = val
 
-         (1) servo_pin, type=int help=GPIO pin
-         we will contect to signal line of servo
-         (2) center, type=float, default=7.5,
-         help=The center dutycycle position of servo
-         (3) minduty, type=float, default=3,
-         help=The min dutycycle position of servo
-         (4) maxduty, type=float, default=11,
-         help=The max dutycycle position of servo
-         (5) delay, type=float, default=0.5,
-         help=Time to wait (in seconds) between steps.
-         (6) verbose, type=bool  type=bool default=False
-          help="Output actions & details",
-         (7) initdelay, type=float, default 50mS
-         help= A delay after Gpio setup and before servo moves
-         (8)  sweeplen, type=integer , default one million
-         help=  is number of times to execute sweep.
-        """
-        if verbose:
-            print("RpiMotorLib: Servo Sweep running , press ctrl+c to quit")
-        GPIO.setup(servo_pin, GPIO.OUT)
-        time.sleep(initdelay)
-        # set pin and freq
-        pwm_servo = GPIO.PWM(servo_pin, self.freq)
-        # set duty cycle
-        pwm_servo.start(center)
-        if verbose:
-            print("Moved to center position = {}".format(center))
-        time.sleep(delay)
-        try:
-            while sweeplen > 0:
-                pwm_servo.ChangeDutyCycle(minduty)
-                if verbose:
-                    print("Moved to min position = {}".format(minduty))
-                time.sleep(delay)
-                pwm_servo.ChangeDutyCycle(maxduty)
-                if verbose:
-                    print("Moved to max position = {}".format(maxduty))
-                    print("Number of loops left = {}".format(sweeplen))
-                sweeplen -= 1
-                time.sleep(delay)
+    def set_y(self, val):
+        with self.mutex:
+            self.curr_y = val
 
-        except KeyboardInterrupt:
-            print("CTRL-C: RpiMotorLib: Terminating program.")
-        finally:
-            if verbose:
-                print("\nRpiMotorLib, Servo Sweep finished, Details:.\n")
-                print("servo pin = {}".format(servo_pin))
-                print("Center position = {}".format(center))
-                print("min position = {}".format(minduty))
-                print("max position = {}".format(maxduty))
-                print("Time delay = {}".format(delay))
-                print("Verbose  = {}".format(verbose))
-                print("Servo control frequency = {}".format(self.freq))
-                print("Number of Sweeps not completed = {}".format(sweeplen))
-            if verbose:
-                print("RpiMotorLib: Cleaning up")
-            pwm_servo.stop()
-            GPIO.output(servo_pin, False)
+    def get_x(self):
+        with self.mutex:
+            return self.curr_x
 
-    def servo_move(self, servo_pin, position=7.5,
-                   delay=0.5, verbose=False, initdelay=.05):
-        """ servoMove 5 inputs
+    def get_y(self):
+        with self.mutex:
+            return self.curr_y
 
-         servosweep(servo_pin, position, delay, verbose)
+    def set_delay(self, val):
+        with self.mutex:
+            self.delay_switch = False
+            self.global_delay = val
 
-         (1) servo_pin, type=int help=GPIO pin
-         we will contect to signal line of servo
-         (2) position, type=float, default=7.5,
-         help=The  dutycycle position of servo to move to
-         (3) delay, type=int, default=0.5,
-         help=Time to wait (in seconds) before move after setup
-         (4) verbose, type=bool  type=bool default=False
-          help="Output actions & details",
-         (5) initdelay, type=float, default 50mS
-         help= A delay after Gpio setup and before servo moves
+    def reset_delay(self):
+        with self.mutex:
+            self.delay_switch = True
 
-         example: to move the servo connected to GPIO pins 7
-         for step delay of .5 second to postion 11
-         with non-verbose output
-         servoMove(7, 11, .5, False)
-        """
+    def get_delay(self):
+        with self.mutex:
+            return self.global_delay
 
-        GPIO.setup(servo_pin, GPIO.OUT)
-        time.sleep(initdelay)
-        pwm_servo = GPIO.PWM(servo_pin, self.freq)
+    def get_delay_switch(self):
+        with self.mutex:
+            return self.delay_switch
 
-        try:
-            start_dc = self.convert_from_degree(position)
-            pwm_servo.start(start_dc)
-            time.sleep(delay)
-        except KeyboardInterrupt:
-            print("CTRL-C: RpiServoLib: Terminating program.")
-        else:
-            if verbose:
-                print("\nRpiMotorLib, Servo Single Move finished, Details:.\n")
-                print("Moved to position = {}".format(position))
-                print("servo pin = {}".format(servo_pin))
-                print("Time delay = {}".format(delay))
-                print("Verbose  = {}".format(verbose))
-        finally:
-            if verbose:
-                print("RpiMotorLib: Cleaning up")
-            pwm_servo.stop()
-            GPIO.output(servo_pin, False)
+    def set_send(self, val):
+        with self.mutex:
+            self.send_msg = val
 
-    def servo_write(self, servo_pin, position=7.5,
-                    delay=0.5, verbose=False, initdelay=.05):
-        """ servoMove 5 inputs
-
-         servosweep(servo_pin, position, delay, verbose)
-
-         (1) servo_pin, type=int help=GPIO pin
-         we will contect to signal line of servo
-         (2) position, type=float, default=7.5,
-         help=The  dutycycle position of servo to move to
-         (3) delay, type=int, default=0.5,
-         help=Time to wait (in seconds) before move after setup
-         (4) verbose, type=bool  type=bool default=False
-          help="Output actions & details",
-         (5) initdelay, type=float, default 50mS
-         help= A delay after Gpio setup and before servo moves
-
-         example: to move the servo connected to GPIO pins 7
-         for step delay of .5 second to postion 11
-         with non-verbose output
-         servoMove(7, 11, .5, False)
-        """
-        GPIO.setup(servo_pin, GPIO.OUT)
-        time.sleep(initdelay)
-        pwm_servo = GPIO.PWM(servo_pin, self.freq)
-
-        try:
-            start_dc = self.convert_from_degree(position)
-            pwm_servo.ChangeDutyCycle(start_dc)
-            time.sleep(delay)
-        except KeyboardInterrupt:
-            print("CTRL-C: RpiServoLib: Terminating program.")
-        else:
-            if verbose:
-                print("\nRpiMotorLib, Servo Single Move finished, Details:.\n")
-                print("Moved to position = {}".format(position))
-                print("servo pin = {}".format(servo_pin))
-                print("Time delay = {}".format(delay))
-                print("Verbose  = {}".format(verbose))
-        finally:
-            if verbose:
-                print("RpiMotorLib: Cleaning up")
+    def get_send(self):
+        with self.mutex:
+            return self.send_msg
 
     def business(self, servo_pin_x, servo_pin_y, stepdelay=0.08,
                  maxX=135,
                  minX=70,
                  maxY=160,
                  minY=130, stepsize_x=5, stepsize_y=3, initdelay=1):
-        mlx = mlx90614.MLX90614()
         GPIO.setup(servo_pin_x, GPIO.OUT)
         GPIO.setup(servo_pin_y, GPIO.OUT)
         time.sleep(initdelay)
@@ -215,61 +108,61 @@ class SG90servo(object):
             pwm_servo_x.start(start_x)
             flag_y = True
             flag_x = True
-            temp = 0
             while True:
                 if flag_x:
                     for x in range(minX, maxX, stepsize_x):
                         if flag_y:
                             for y in range(minY, maxY, stepsize_y):
-                                tmp_y = self.convert_from_degree(y)
-                                pwm_servo_y.ChangeDutyCycle(tmp_y)
-                                temp = mlx.get_obj_temp()
-                                # print("[{},{} ({},{}) = {}]".format(
-                                # np.abs(int(21 - (y-minY)/((maxY - minY)/21))), np.abs(int(19-(x-minX)/((maxX-minX)/19))), y, x, int(temp)))
-                                ImageArr[np.abs(int(18 - int(y-minY)/int(int(maxY - minY)/18))), np.abs(
-                                    int(19-int(x-minX)/int(int(maxX-minX)/19)))] = int(temp)
+                                self.set_y(y)
+                                pwm_servo_y.ChangeDutyCycle(
+                                    self.convert_from_degree(y))
+                                # if self.get_delay_switch():
                                 time.sleep(stepdelay)
+                                # else:
+                                #     time.sleep(self.get_delay())
                         else:
                             for y in range(maxY, minY, -stepsize_y):
-                                tmp_y = self.convert_from_degree(y)
-                                pwm_servo_y.ChangeDutyCycle(tmp_y)
-                                temp = mlx.get_obj_temp()
-                                # print("[{},{} ({},{}) = {}]".format(
-                                #     np.abs(int(21 - (y-minY)/((maxY - minY)/21))), np.abs(int(19-(x-minX)/((maxX-minX)/19))), y, x, int(temp)))
-                                ImageArr[np.abs(int(18 - int(y-minY)/int(int(maxY - minY)/18))), np.abs(
-                                    int(19-int(x-minX)/int(int(maxX-minX)/19)))] = int(temp)
+                                self.set_y(y)
+                                pwm_servo_y.ChangeDutyCycle(
+                                    self.convert_from_degree(y))
+                                # if self.get_delay_switch():
                                 time.sleep(stepdelay)
-                        tmp_x = self.convert_from_degree(x)
-                        pwm_servo_x.ChangeDutyCycle(tmp_x)
-                        time.sleep(stepdelay)
+                                # else:
+                                #     time.sleep(self.get_delay())
+                        self.set_x(x)
+                        # if np.abs(x-(maxX-minX)/2) > 40
+                        #     stepsize_x
+                        pwm_servo_x.ChangeDutyCycle(
+                            self.convert_from_degree(x))
                         flag_y = not flag_y
                 else:
                     for x in range(maxX, minX, -stepsize_x):
                         if flag_y:
                             for y in range(minY, maxY, stepsize_y):
-                                tmp_y = self.convert_from_degree(y)
-                                pwm_servo_y.ChangeDutyCycle(tmp_y)
-                                temp = mlx.get_obj_temp()
-                                # print("[{},{} ({},{}) = {}]".format(
-                                #     np.abs(int(21 - (y-minY)/((maxY - minY)/21))), np.abs(int(19-(x-minX)/((maxX-minX)/19))), y, x, int(temp)))
-                                ImageArr[np.abs(int(18 - int(y-minY)/int(int(maxY - minY)/18))), np.abs(
-                                    int(19-int(x-minX)/int(int(maxX-minX)/19)))] = int(temp)
+                                self.set_y(y)
+                                pwm_servo_y.ChangeDutyCycle(
+                                    self.convert_from_degree(y))
+                                # if self.get_delay_switch():
                                 time.sleep(stepdelay)
+                                # else:
+                                #     time.sleep(self.get_delay())
                         else:
                             for y in range(maxY, minY, -stepsize_y):
-                                tmp_y = self.convert_from_degree(y)
-                                pwm_servo_y.ChangeDutyCycle(tmp_y)
-                                temp = mlx.get_obj_temp()
-                                # print("[{},{} ({},{}) = {}]".format(
-                                #     np.abs(int(21 - (y-minY)/((maxY - minY)/21))), np.abs(int(19-(x-minX)/((maxX-minX)/19))), y, x, int(temp)))
-                                ImageArr[np.abs(int(18 - int(y-minY)/int(int(maxY - minY)/18))), np.abs(
-                                    int(19-int(x-minX)/int(int(maxX-minX)/19)))] = int(temp)
+                                self.set_y(y)
+                                pwm_servo_y.ChangeDutyCycle(
+                                    self.convert_from_degree(y))
+                                # if self.get_delay_switch():
                                 time.sleep(stepdelay)
-                        tmp_x = self.convert_from_degree(x)
-                        pwm_servo_x.ChangeDutyCycle(tmp_x)
-                        time.sleep(stepdelay)
+                                # else:
+                                #     time.sleep(self.get_delay())
+                        self.set_x(x)
+                        pwm_servo_x.ChangeDutyCycle(
+                            self.convert_from_degree(x))
                         flag_y = not flag_y
                 flag_x = not flag_x
+                if(self.get_send()):
+                    self.set_send(False)
+                    teleg.sendPhoto(teleg.bot)
         except KeyboardInterrupt:
             print("CTRL-C: RpiServoLib: Terminating program.")
         finally:
@@ -286,70 +179,6 @@ class SG90servo(object):
         slope = (self.y_two-self.y_one)/(x_two-x_one)
         duty_cycle = slope*(degree-x_one) + self.y_one
         return duty_cycle
-
-    def servo_move_step(self, servo_pin, start=10, end=170, stepdelay=1,
-                        stepsize=1, initdelay=1, verbose=False):
-        """
-        servo move in step , moves servo in delayed steps
-        between two points , seven inputs
-
-        (1) servo_pin, type=int help=GPIO pin
-        we will contect to signal line of servo
-        (2) start, type=float, default=10,
-        help=start position of servo in degrees
-        (3) end, type=float, default=170,
-        help=start position of servo in degrees
-        (4) stepdelay, type=float, default=1,
-        help=Time to wait (in seconds) between steps.
-        (5) stepsize, type=int, default=1.
-        help=teh size of steps between start and end in degrees
-        (6) initdelay, type=float, default 50mS
-        help= A delay after Gpio setup and before servo moves
-        (7) verbose, type=bool  type=bool default=False
-         help="Output actions & details",
-
-        Example: to move a servo on GPIO pin 26 from 10 degrees to 180
-        degrees in 20 degree steps every two seconds, with an initial delay
-        of one second and verbose output.
-
-        servo_move_step(26, 10, 180, 2, 20, 1, True)
-        """
-        if start > end:
-            stepsize = (stepsize)*-1
-
-        GPIO.setup(servo_pin, GPIO.OUT)
-        time.sleep(initdelay)
-        pwm_servo = GPIO.PWM(servo_pin, self.freq)
-        try:
-            start_dc = self.convert_from_degree(start)
-            pwm_servo.start(start_dc)
-            for x in range(start, end+stepsize, stepsize):
-                end_pwm = self.convert_from_degree(x)
-                if verbose:
-                    print("Servo moving: {}  {} ".format(end_pwm, x))
-                pwm_servo.ChangeDutyCycle(end_pwm)
-                time.sleep(stepdelay)
-        except KeyboardInterrupt:
-            print("CTRL-C: RpiServoLib: Terminating program.")
-        except Exception as error:
-            print(sys.exc_info()[0])
-            print(error)
-            print("RpiServoLib  : Unexpected error:")
-        else:
-            if verbose:
-                print("\nRpiMotorLib, Servo move finished, Details:.\n")
-                print("servo pin = {}".format(servo_pin))
-                print("stepsize = {}".format(stepsize))
-                print("Start = {}".format(start))
-                print("End = {}".format(end))
-                print("Step delay = {}".format(stepdelay))
-                print("Initial delay = {}".format(initdelay))
-                print("Servo control frequency = {}".format(self.freq))
-        finally:
-            if verbose:
-                print("RpiMotorLib: Cleaning up")
-            pwm_servo.stop()
-            GPIO.output(servo_pin, False)
 
 
 def importtest(text):
